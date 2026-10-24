@@ -1,0 +1,61 @@
+{
+  "name": "dsh-video-comments",
+  "version": "0.1.0",
+  "description": "看视频再评论：给 DeepSeek Harness 的 agent 加上 B 站搜索/视频信息/评论读写与抖音视频信息读取能力 / Watch & comment: Bilibili search/video/comments + Douyin video info as MCP tools for DeepSeek Harness",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "bilibili",
+    "douyin",
+    "comment",
+    "mcp",
+    "video"
+  ],
+  "author": {
+    "name": "hezhaochao"
+  },
+  "homepage": "https://github.com/hezhaochao/dsh-video-comments#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hezhaochao/dsh-video-comments.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hezhaochao/dsh-video-comments/issues"
+  },
+  "type": "module",
+  "main": "./mcp/dsh-plugin.mjs",
+  "bin": {
+    "video-comments-mcp": "./mcp/server.mjs"
+  },
+  "exports": {
+    ".": "./mcp/dsh-plugin.mjs",
+    "./server": "./mcp/server.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "mcp",
+    "test",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/mcp.test.mjs",
+    "test:live": "node test/bili.live.test.mjs"
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.0-rc.1 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-mcp-client": ">=0.1.0-rc.2 || >=0.2.0-rc.2"
+  }
+}

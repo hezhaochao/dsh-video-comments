@@ -1,0 +1,9 @@
+# dsh-video-comments — DSH bundle patch 层
+#
+# 通过 DSH 内置的 @deepseek-ai/dsh-mcp-client 桥接挂载视频评论 MCP 服务器。
+# DSH 启动后，模型看到的工具名为 mcp__video__<工具>
+# （bili_search、bili_video、bili_comments、bili_comment、douyin_video、douyin_open）。
+
+- insert:
+    - id: mcp-video-comments
+      name: 'dsh-video-comments'
