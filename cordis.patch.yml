@@ -2,8 +2,16 @@
 #
 # 通过 DSH 内置的 @deepseek-ai/dsh-mcp-client 桥接挂载视频评论 MCP 服务器。
 # DSH 启动后，模型看到的工具名为 mcp__video__<工具>
-# （bili_search、bili_video、bili_comments、bili_comment、douyin_video、douyin_open）。
+# （bili_search、bili_video、bili_comments、bili_comment、bili_owner_prompt、douyin_video、douyin_open）。
+# config 是 bundle 默认值；schema 见 mcp/dsh-plugin.mjs 导出的 Config。
 
 - insert:
     - id: mcp-video-comments
       name: 'dsh-video-comments'
+      config:
+        # 视频发布者提示词：ignore=无视（默认）/ relaxed=轻松 / strict=严格
+        ownerPromptMode: ignore
+        # 拾取来源：description=视频简介；owner_comment=发布者在评论区发的评论
+        # 注意：插件没有读画面/字幕的能力，不要填其他来源
+        ownerPromptSources:
+          - description

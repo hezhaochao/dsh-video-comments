@@ -7,6 +7,8 @@
  *     参数排序拼 query + wts → md5(query + mixin_key) 得 w_rid
  *   - 搜索走 wbi 端点；视频信息与评论列表为公开端点；
  *     发评论需要用户自己的 SESSDATA/bili_jct（凭据文件，永不外传）
+ *   - 发布者提示词拾取（biliOwnerPromptSources）：view 的简介全文 +
+ *     owner.mid 匹配评论区里 UP 主自己发的评论
  *
  * 写操作纪律：
  *   - 内存限速：两次写入之间至少 VIDEO_CM_MIN_INTERVAL_MS（默认 30s）
@@ -200,12 +202,18 @@ export async function biliSearch(keyword, page = 1) {
   return { ok: true, keyword, page, numResults: results.length, results };
 }
 
-export async function biliVideo(input) {
+/** 拉取视频信息（/x/web-interface/view），biliVideo / biliComments / 提示词拾取共用 */
+async function fetchView(input) {
   const bvid = parseBvid(input);
   if (!bvid) throw new Error("无法从输入解析 BV 号（支持 BV 号或视频 URL）");
   const data = await biliFetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
     referer: `https://www.bilibili.com/video/${bvid}/`,
   });
+  return { bvid, data };
+}
+
+export async function biliVideo(input) {
+  const { bvid, data } = await fetchView(input);
   return {
     ok: true,
     bvid: data.bvid,
@@ -213,6 +221,7 @@ export async function biliVideo(input) {
     title: data.title,
     description: String(data.desc || "").slice(0, 500),
     owner: data.owner?.name,
+    owner_mid: data.owner?.mid,
     duration: fmtDuration(data.duration),
     tname: data.tname,
     pubdate: data.pubdate ? new Date(data.pubdate * 1000).toISOString().slice(0, 10) : "",
@@ -230,11 +239,7 @@ export async function biliVideo(input) {
 }
 
 export async function biliComments(input, page = 1, sort = 1) {
-  const bvid = parseBvid(input);
-  if (!bvid) throw new Error("无法从输入解析 BV 号（支持 BV 号或视频 URL）");
-  const view = await biliFetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
-    referer: `https://www.bilibili.com/video/${bvid}/`,
-  });
+  const { bvid, data: view } = await fetchView(input);
   const oid = view.aid;
   const data = await biliFetch(
     `https://api.bilibili.com/x/v2/reply?type=1&oid=${oid}&pn=${page}&ps=20&sort=${sort}`,
@@ -242,6 +247,8 @@ export async function biliComments(input, page = 1, sort = 1) {
   );
   const map = (r) => ({
     rpid: r.rpid,
+    // mid 用于和 bili_video 返回的 owner_mid 对账：识别哪些评论是发布者自己发的
+    mid: r.member?.mid,
     user: r.member?.uname,
     like: r.like,
     time: r.ctime ? new Date(r.ctime * 1000).toISOString().slice(0, 10) : "",
@@ -260,6 +267,62 @@ export async function biliComments(input, page = 1, sort = 1) {
     pinned: top,
     comments: replies,
   };
+}
+
+/* ────────────────────────── 发布者提示词拾取 ────────────────────────── */
+
+// 提示词单来源文本上限（提示词应是简短指令，超长视为异常内容做截断）
+const PROMPT_MAX_LEN = 1000;
+
+function capPromptText(text) {
+  const s = String(text);
+  return s.length > PROMPT_MAX_LEN ? s.slice(0, PROMPT_MAX_LEN) + "…（已截断）" : s;
+}
+
+/**
+ * 按指定来源拾取视频发布者提示词（owner prompt）。
+ *
+ * 来源：
+ *   - description   → 视频简介全文（/x/web-interface/view 的 desc，不经 500 字裁剪）
+ *   - owner_comment → 发布者在评论区发的评论：用 view 的 owner.mid 逐页匹配
+ *                     /x/v2/reply 里 member.mid 相同的评论（含置顶），翻页上限 maxReplyPages
+ *
+ * 只返回拾取到非空文本的来源；owner_comment 翻页/解析失败按“没有更多”处理，不让整体报错。
+ */
+export async function biliOwnerPromptSources(input, sources, { maxReplyPages = 3 } = {}) {
+  const { bvid, data } = await fetchView(input);
+  const want = new Set(Array.isArray(sources) ? sources : []);
+  const out = { bvid, ownerMid: data.owner?.mid };
+
+  if (want.has("description")) {
+    const desc = String(data.desc || "").trim();
+    if (desc) out.description = capPromptText(desc);
+  }
+
+  if (want.has("owner_comment") && data.owner?.mid) {
+    const messages = [];
+    for (let pn = 1; pn <= maxReplyPages; pn++) {
+      let page;
+      try {
+        page = await biliFetch(
+          `https://api.bilibili.com/x/v2/reply?type=1&oid=${data.aid}&pn=${pn}&ps=20&sort=1`,
+          { referer: `https://www.bilibili.com/video/${bvid}/` },
+        );
+      } catch {
+        break; // 某一页拉不到就到此为止：拾取尽力而为，不因翻页失败整体报错
+      }
+      const rows = [...(page?.top_replies || []), ...(page?.replies || [])];
+      for (const r of rows) {
+        if (r?.member?.mid !== data.owner.mid) continue;
+        const message = String(r?.content?.message || "").trim();
+        if (message && !messages.includes(message)) messages.push(message);
+      }
+      if (!rows.length) break;
+    }
+    if (messages.length) out.owner_comment = capPromptText(messages.join("\n---\n"));
+  }
+
+  return out;
 }
 
 /* ────────────────────────── 写入（需凭据） ────────────────────────── */
